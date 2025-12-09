@@ -1,0 +1,83 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:8.1.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:8.1.0
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+
+  connect:
+    image: debezium/connect:2.3
+    depends_on:
+      - kafka
+      - zookeeper
+      - postgres
+    environment:
+      # Debezium / Kafka Connect basic config
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      # Activate JMX exporter as Java agent (we mount jar & config below)
+      KAFKA_OPTS: >-
+        -javaagent:/opt/jmx/jmx_prometheus_javaagent.jar=9404:/opt/jmx/connect-jmx-config.yaml
+    ports:
+      - "8083:8083"   # Kafka Connect REST
+      - "9404:9404"   # JMX exporter metrics endpoint exposed by javaagent
+    volumes:
+      - ./jmx:/opt/jmx:ro
+    # give some time for startup ordering
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:2.45.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - connect
+
+  grafana:
+    image: grafana/grafana:10.2.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
