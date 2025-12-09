@@ -30,5 +30,5 @@
 ### 1. Клонирование проекта
 
 ```bash
-git clone https://github.com/<your_github>/debezium-cdc.git
-cd debezium-cdc
+https://github.com/Madraximov/Kafka_unit_4_new.git
+cd Kafka_unit_4_new
